@@ -51,7 +51,13 @@ def import_xlsx_file(path):
     tuple of lists
         frequency, z_prime, z_double_prime, z_mod extracted from the file.
     """
-    df = pd.read_excel(path)
+    try:
+        df = pd.read_excel(path, engine="openpyxl")
+    except ImportError as exc:
+        raise ImportError(
+            "openpyxl is required to load Excel files. "
+            "Install it with 'pip install openpyxl' and try again."
+        ) from exc
     if "-Z'' (Ω)" in df.columns:
         df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
 

@@ -1,10 +1,15 @@
 Open Source Impedance Fitter (OSIF) is a program that allows the user to fit electrochemical impedance spectra of Proton-exchange membrane fuel cells collected under a hydrogen/nitrogen (anode/cathode) environment to an accepted quasi-transmission line model (1), or one dimentional linear diffusion or spherical diffusion models (2).
 
-To use OSIF, the following non-default python packages will have to be downloaded:
-  - pandas (uses openpyxl for Excel files)
+To use OSIF, the following non-default Python packages are required:
+  - pandas
+  - openpyxl  # needed to load Excel files
   - matplotlib
   - numpy
   - scipy
+
+A ``requirements.txt`` file is provided, so dependencies can be installed with::
+
+    pip install -r requirements.txt
 
 Version 2.0 now includes a helper function ``import_xlsx_file``
 to load Excel data outside of the GUI.
