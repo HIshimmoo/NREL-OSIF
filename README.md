@@ -5,6 +5,9 @@ To use OSIF, the following non-default python packages will have to be downloade
   - matplotlib
   - numpy
   - scipy
+
+Version 2.0 now includes a helper function ``import_xlsx_file``
+to load Excel data outside of the GUI.
   
 The default python version the program is written for is 3.x, though it can be used in python 2.x (see in "How to Use OSIF" file in the repository)
 
