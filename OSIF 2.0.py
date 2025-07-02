@@ -18,8 +18,10 @@ import tkMessageBox
 # end python 2 Tkinter import section
 
 
-import xlrd
 import matplotlib
+import pandas as pd
+from pathlib import Path
+from dataclasses import dataclass, field
 
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -372,15 +374,13 @@ class OSIF:
             menu.add_command(label=file, command=lambda v=self.currentFileName, l=file: v.set(l))
         print('Selected Data Directory: ' + self.currentDataDir.IE.get())
 
-    def LoadSElectedFile(self):
-        # if nothing is selected, exit this method
-        if (len(self.currentFileName.get()) == 0) | (self.currentFileName.get() is '---'):
+    def load_selected_file(self):
+        if not self.currentFileName.get() or self.currentFileName.get() == '---':
             print('attempt to load on null selection')
             return
 
-        print(
-            "\n===========================================\n  loading file: " + self.currentFileName.get() + '\n===========================================\n\n')
-        # clear the variables of any previous data
+        print("\n===========================================\n  loading file: " + self.currentFileName.get() + '\n===========================================\n\n')
+
         self.activeData.rawFrequency = []
         self.activeData.rawzPrime = []
         self.activeData.rawZdoublePrime = []
@@ -389,148 +389,41 @@ class OSIF:
         self.activeData.rawmodZExperimentalComplex = []
 
         self.activeData.dataName = self.currentFileName.get()
+        self.activeData.dataNameNoExt = Path(self.activeData.dataName).stem
 
-        if ".xlsx" in self.activeData.dataName:
-            self.activeData.dataNameNoExt = self.activeData.dataName[0:len(self.activeData.dataName) - 5]
-        else:
-            self.activeData.dataNameNoExt = self.activeData.dataName[0:len(self.activeData.dataName) - 4]
-        # check for different file formats to parse appropriately.
-        if self.currentFileName.get().endswith('.txt'):
+        file_path = os.path.join(self.currentDataDir.IE.get(), self.currentFileName.get())
 
-            self.activeData.dataNameNoExt = self.activeData.dataName[0:len(self.activeData.dataName) - 4]
-            self.currentFile = open(self.currentDataDir.IE.get() + self.currentFileName.get())
+        try:
+            if file_path.endswith('.txt'):
+                df = pd.read_csv(file_path, sep='\t', comment='#')
+            else:
+                df = pd.read_excel(file_path)
+        except Exception as e:
+            tkMessageBox.showinfo('Error!', f'Failed to read data file: {e}')
+            return
 
-            # Run through the lines in the data and parse out the variables into the above lists.
-            i = 0  # number of lines in the text file (data and non data)
-            dataLineString = self.currentFile.readline()
-            freqCol = 0
-            zPrimeCol = 1
-            zDoublePrimeCol = 2
-            zModCol = 3
-            negateImZ = 1
-            if 'Frequency' in dataLineString:
-                freqCol = 1
-                zPrimeCol = 2
-                zDoublePrimeCol = 3
-                zModCol = 4
-                if ("-Z''" in dataLineString):
-                    print("data loaded in has -Z'' instead of Z''; negating -Z'' column.")
-                    negateImZ = -1
-            k = 0
-            while dataLineString:
+        if "-Z'' (Ω)" in df.columns:
+            df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
 
-                # For debuging file input regular expressions.
+        self.activeData.rawFrequency = df.iloc[:, 1].to_numpy()
+        self.activeData.rawzPrime = df.iloc[:, 2].to_numpy()
+        self.activeData.rawZdoublePrime = df.iloc[:, 3].to_numpy()
+        self.activeData.rawzMod = df.iloc[:, 4].to_numpy()
 
-                regExTest = re.match('^\d*.\d*\t\d*.\d*\t\d*.\d*', dataLineString)
-                if regExTest is not None:
-                    print(
-                        '----------------------------------------------------------------------------------------------------------DATA LINE BELOW')
-                if regExTest is None:
-                    print(
-                        '----------------------------------------------------------------------------------------------------------NOT DATA LINE BELOW\n' + dataLineString)
+        self.activeData.rawZExperimentalComplex = self.activeData.rawzPrime + 1j * self.activeData.rawZdoublePrime
+        self.activeData.rawmodZExperimentalComplex = np.abs(self.activeData.rawZExperimentalComplex)
 
-                if (len(dataLineString) > 2) & (dataLineString[0] != '#') & (
-                        re.match('^\d*.\d*\t\d*.\d*\t\d*.\d*', dataLineString) is not None) & (dataLineString != ""):
-                    lineList = dataLineString.split("\t")
-                    length = len(lineList)
-                    last = lineList[length - 1]
-                    lineList.remove(last)
-                    last = last.strip()
-                    lineList.insert(length - 1, last)
-                    self.activeData.rawFrequency.append(float(lineList[freqCol]))
-                    self.activeData.rawzPrime.append(float(lineList[zPrimeCol]))
-                    self.activeData.rawZdoublePrime.append(negateImZ * float(lineList[zDoublePrimeCol]))
-                    self.activeData.rawzMod.append(float(lineList[zModCol]))
-                    if k == 0:
-                        print('\n\tFrequency,\t\tRe(Z),\t\t\tIm(Z),\t\t\t\t|Z|')
-                        k = 1
-                    print(lineList[freqCol], lineList[zPrimeCol], lineList[zDoublePrimeCol], lineList[zModCol])
-                dataLineString = self.currentFile.readline()
-            self.currentFile.close()
-            i = 0
-            for real in self.activeData.rawzPrime:
-                self.activeData.rawZExperimentalComplex.append((real + 1j * self.activeData.rawZdoublePrime[i]))
-                self.activeData.rawmodZExperimentalComplex.append(abs(self.activeData.rawZExperimentalComplex[i]))
-                i += 1
+        print('\n\tFrequency,\t\tRe(Z),\t\t\tIm(Z),\t\t\t\t|Z|')
+        for f, r, i, m in zip(self.activeData.rawFrequency, self.activeData.rawzPrime,
+                              self.activeData.rawZdoublePrime, self.activeData.rawzMod):
+            print(f, r, i, m)
 
-            # Change into a numpy.array type so least_squares can use it.
-            self.activeData.rawFrequency = np.array(self.activeData.rawFrequency)
-
-
-        # Load in default excel spread sheet output format from EIS software
-        elif self.currentFileName.get().endswith('.xlsx') | self.currentFileName.get().endswith('.xls'):
-
-            def checkForNegativeImZReturnImZ(dataRowCol):
-                numRows = sheet1.col(0).__len__()
-                if dataRowCol[0][3].startswith('-'):
-                    i = 1
-                    while i < numRows:
-                        dataRowCol[i][3] = -1 * float(dataRowCol[i][3])
-                        i += 1
-
-                    newHeader = dataRowCol[0]
-                    newHeader.remove(dataRowCol[0][3])
-                    newHeader.insert(3, dataRowCol[0][3].strip("-"))
-                    dataRowCol.remove(dataRowCol[0])
-                    dataRowCol.insert(0, newHeader)
-                return dataRowCol
-
-            def sheetToListRowCol(sheet1):
-                returnList = []
-                i = 0
-                j = 0
-                numRows = sheet1.col(0).__len__()
-                numCol = sheet1.row(0).__len__()
-                while i < numRows:
-                    tempRow = []
-                    j = 0
-                    while j < numCol:
-                        tempRow.append(sheet1.cell(i, j).value)
-                        j += 1
-                    returnList.append(tempRow)
-                    i += 1
-                returnList = checkForNegativeImZReturnImZ(returnList)
-                return returnList
-
-            def getColDataFromData(dataRowCol, colIndex):
-                i = 1
-                returnCol = []
-                numCol = len(dataRowCol)
-                while i < numCol:
-                    returnCol.append(dataRowCol[i][colIndex])
-                    i += 1
-                return returnCol
-
-            xlsx = xlrd.open_workbook(self.currentDataDir.IE.get() + self.currentFileName.get())
-            sheet1 = xlsx.sheet_by_index(0)
-            data = sheetToListRowCol(sheet1)
-            xlsx.release_resources()
-            del xlsx
-
-            self.activeData.rawFrequency = getColDataFromData(data, 1)
-            self.activeData.rawzPrime = getColDataFromData(data, 2)
-            self.activeData.rawZdoublePrime = getColDataFromData(data, 3)
-            self.activeData.rawzMod = getColDataFromData(data, 4)
-            i = 0
-            print('\n\tFrequency,\t\tRe(Z),\t\t\tIm(Z),\t\t\t\t|Z|')
-            for real in self.activeData.rawzPrime:
-                # create things for graphing later
-                self.activeData.rawZExperimentalComplex.append((real + 1j * self.activeData.rawZdoublePrime[i]))
-                self.activeData.rawmodZExperimentalComplex.append(abs(self.activeData.rawZExperimentalComplex[i]))
-
-                print(self.activeData.rawFrequency[i], self.activeData.rawzPrime[i], self.activeData.rawZdoublePrime[i],
-                      self.activeData.rawzMod[i])
-                i += 1
-
-            # Change into a numpy.array type so least_squares can use it.
-            self.activeData.rawFrequency = np.array(self.activeData.rawFrequency)
-
-        for i in range(len(self.activeData.rawzPrime)):
-            self.activeData.rawPhase.append(
-                (180 / (np.pi)) * np.arctan(self.activeData.rawZdoublePrime[i] / self.activeData.rawzPrime[i]))
+        self.activeData.rawFrequency = np.array(self.activeData.rawFrequency)
+        self.activeData.rawPhase = (180 / np.pi) * np.arctan(
+            self.activeData.rawZdoublePrime / self.activeData.rawzPrime)
 
         print(len(self.activeData.rawPhase), len(self.activeData.rawzMod))
-        print("===============================\ndone loading file\n===============================")
+        print("===============================\ndone loading file\n==========================")
 
     def ChopFreq(self):
         tempFreq = []
@@ -552,7 +445,7 @@ class OSIF:
         self.activeData.phase = self.activeData.rawPhase[minIndex:maxIndex + 1]
 
     def PerformSim(self):
-        self.LoadSElectedFile()
+        self.load_selected_file()
         if len(self.activeData.rawzPrime) == 0:
             tkMessageBox.showinfo("Error!", "No data file loaded\nor data is in incorrect format")
             return
@@ -579,7 +472,7 @@ class OSIF:
             self.avgResPer.AVGRESPER.config(state='readonly')
 
     def PerformFit(self):
-        self.LoadSElectedFile()
+        self.load_selected_file()
         print('\n\n\n\n' + 'Sample: ' + self.currentFileName.get() + '\n')
         if len(self.activeData.rawzPrime) == 0:
             tkMessageBox.showinfo("Error!", "No data file loaded\nor data is in incorrect format")
@@ -588,6 +481,19 @@ class OSIF:
         else:
             ### /float(self.area.IE.get())   Rmem
             self.ChopFreq()
+
+            # Estimate Rmem directly from the data.  When the imaginary
+            # component of the impedance is approximately zero, the real
+            # component corresponds to the membrane resistance.  The data
+            # arrays are chopped to the frequency range at this point, so we
+            # simply find the value of Z' where |Z''| is minimal.
+            idx_rmem = int(np.argmin(np.abs(self.activeData.ZdoublePrime)))
+            est_rmem = self.activeData.zPrime[idx_rmem]
+
+            # Update the GUI with the estimated Rmem in [ohm*cm^2]
+            self.Rmem.IE.delete(0, END)
+            self.Rmem.IE.insert(0, '%5.8f' % (est_rmem * float(self.area.IE.get())))
+
             params = [float(self.Lwire.IE.get()) / float(self.area.IE.get()),
                       float(self.Rmem.IE.get()) / float(self.area.IE.get()),
                       float(self.Rcl.IE.get()) / float(self.area.IE.get()),
@@ -596,9 +502,12 @@ class OSIF:
                       float(self.Theta.IE.get())]
 
             # Perform the fitting using least_squares with the TRF method and max function calls of 10000.
+            rmem_param = float(self.Rmem.IE.get()) / float(self.area.IE.get())
+            bounds_lower = (0, 0.9 * rmem_param, 0, 0, 0, 0)
+            bounds_upper = (1, 1.1 * rmem_param, np.inf, np.inf, 1, 1)
 
             finalOutput = scipy.optimize.least_squares(self.funcCost, params,
-                                                       bounds=[(0, 0, 0, 0, 0, 0), (1, np.inf, np.inf, np.inf, 1, 1)],
+                                                       bounds=[bounds_lower, bounds_upper],
                                                        max_nfev=50000, method='trf', xtol=1e-11,
                                                        ftol=1e-11, gtol=1e-11, verbose=1)
             self.finalParams = finalOutput.x
@@ -914,7 +823,7 @@ class OSIF:
         print("\n\nAll plots killed. \nHave a nice day!")
 
     def SaveData(self):
-        if (len(self.currentFileName.get()) == 0) | (self.currentFileName.get() is '---'):
+        if (len(self.currentFileName.get()) == 0) | (self.currentFileName.get() == '---'):
             print('no data loaded')
             tkMessageBox.showinfo("Error!", "No data file loaded")
             # nothing selected to load
@@ -1063,25 +972,24 @@ class Param():
         self.AVGRESPER = Entry()
 
 
-class Data():
+@dataclass
+class Data:
+    dataName: str = ''
+    dataNameNoExt: str = ''
 
-    def __init__(self):
-        self.dataName = ''
-        self.dataNameNoExt = ''
+    zPrime: list = field(default_factory=list)
+    ZdoublePrime: list = field(default_factory=list)
+    zMod: list = field(default_factory=list)
+    modZExperimentalComplex: list = field(default_factory=list)
+    frequency: np.ndarray = field(default_factory=lambda: np.array([]))
+    phase: list = field(default_factory=list)
 
-        self.zPrime = []
-        self.ZdoublePrime = []
-        self.zMod = []
-        self.modZExperimentalComplex = []
-        self.frequency = np.array([])
-        self.phase = []
-
-        self.rawzPrime = []
-        self.rawZdoublePrime = []
-        self.rawzMod = []
-        self.rawmodZExperimentalComplex = []
-        self.rawFrequency = []
-        self.rawPhase = []
+    rawzPrime: list = field(default_factory=list)
+    rawZdoublePrime: list = field(default_factory=list)
+    rawzMod: list = field(default_factory=list)
+    rawmodZExperimentalComplex: list = field(default_factory=list)
+    rawFrequency: list = field(default_factory=list)
+    rawPhase: list = field(default_factory=list)
 
 
 def on_closing():
