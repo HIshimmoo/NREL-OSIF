@@ -37,6 +37,30 @@ import re
 import webbrowser
 import sys
 
+
+def import_xlsx_file(path):
+    """Read impedance data from an Excel file.
+
+    Parameters
+    ----------
+    path : str
+        Full path to the Excel file.
+
+    Returns
+    -------
+    tuple of lists
+        frequency, z_prime, z_double_prime, z_mod extracted from the file.
+    """
+    df = pd.read_excel(path)
+    if "-Z'' (Ω)" in df.columns:
+        df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
+
+    freq = df.iloc[:, 1].tolist()
+    z_prime = df.iloc[:, 2].tolist()
+    z_double = df.iloc[:, 3].tolist()
+    z_mod = df.iloc[:, 4].tolist()
+    return freq, z_prime, z_double, z_mod
+
 # output pretty title, version info and citation prompt.
 print('\n\n\n#########################################################################')
 print('python version: ' + sys.version)
@@ -396,21 +420,25 @@ class OSIF:
         try:
             if file_path.endswith('.txt'):
                 df = pd.read_csv(file_path, sep='\t', comment='#')
+                if "-Z'' (Ω)" in df.columns:
+                    df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
+
+                self.activeData.rawFrequency = df.iloc[:, 1].to_numpy()
+                self.activeData.rawzPrime = df.iloc[:, 2].to_numpy()
+                self.activeData.rawZdoublePrime = df.iloc[:, 3].to_numpy()
+                self.activeData.rawzMod = df.iloc[:, 4].to_numpy()
             else:
-                df = pd.read_excel(file_path)
+                (self.activeData.rawFrequency,
+                 self.activeData.rawzPrime,
+                 self.activeData.rawZdoublePrime,
+                 self.activeData.rawzMod) = (
+                    np.array(v) for v in import_xlsx_file(file_path))
         except Exception as e:
             tkMessageBox.showinfo('Error!', f'Failed to read data file: {e}')
             return
 
-        if "-Z'' (Ω)" in df.columns:
-            df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
-
-        self.activeData.rawFrequency = df.iloc[:, 1].to_numpy()
-        self.activeData.rawzPrime = df.iloc[:, 2].to_numpy()
-        self.activeData.rawZdoublePrime = df.iloc[:, 3].to_numpy()
-        self.activeData.rawzMod = df.iloc[:, 4].to_numpy()
-
-        self.activeData.rawZExperimentalComplex = self.activeData.rawzPrime + 1j * self.activeData.rawZdoublePrime
+        self.activeData.rawZExperimentalComplex = (
+            self.activeData.rawzPrime + 1j * self.activeData.rawZdoublePrime)
         self.activeData.rawmodZExperimentalComplex = np.abs(self.activeData.rawZExperimentalComplex)
 
         print('\n\tFrequency,\t\tRe(Z),\t\t\tIm(Z),\t\t\t\t|Z|')

@@ -17,6 +17,7 @@ import tkMessageBox
 # end python 2 Tkinter import section
 
 import xlrd
+import pandas as pd
 import matplotlib
 
 matplotlib.use('tkagg')
@@ -33,6 +34,30 @@ import os
 import re
 import webbrowser
 import sys
+
+
+def import_xlsx_file(path):
+    """Read impedance data from an Excel file.
+
+    Parameters
+    ----------
+    path : str
+        Full path to the Excel file.
+
+    Returns
+    -------
+    tuple of lists
+        frequency, z_prime, z_double_prime, z_mod extracted from the file.
+    """
+    df = pd.read_excel(path)
+    if "-Z'' (Ω)" in df.columns:
+        df["Z'' (Ω)"] = -df.pop("-Z'' (Ω)")
+
+    freq = df.iloc[:, 1].tolist()
+    z_prime = df.iloc[:, 2].tolist()
+    z_double = df.iloc[:, 3].tolist()
+    z_mod = df.iloc[:, 4].tolist()
+    return freq, z_prime, z_double, z_mod
 
 
 
@@ -423,72 +448,29 @@ class OSIF:
             self.activeData.rawFrequency = np.array(self.activeData.rawFrequency)
 
 
-        # Load in default excel spread sheet output format from EIS software
-        elif self.currentFileName.get().endswith('.xlsx') | self.currentFileName.get().endswith('.xls'):
+        # Load in excel spreadsheet output using pandas
+        elif self.currentFileName.get().endswith('.xlsx') or self.currentFileName.get().endswith('.xls'):
 
-            def checkForNegativeImZReturnImZ(dataRowCol):
-                numRows = sheet1.col(0).__len__()
-                if dataRowCol[0][3].startswith('-'):
-                    i = 1
-                    while i < numRows:
-                        dataRowCol[i][3] = -1 * float(dataRowCol[i][3])
-                        i += 1
+            excel_path = os.path.join(self.currentDataDir.IE.get(), self.currentFileName.get())
+            try:
+                (self.activeData.rawFrequency,
+                 self.activeData.rawzPrime,
+                 self.activeData.rawZdoublePrime,
+                 self.activeData.rawzMod) = import_xlsx_file(excel_path)
+            except Exception as e:
+                tkMessageBox.showinfo('Error!', f'Failed to read Excel file: {e}')
+                return
 
-                    newHeader = dataRowCol[0]
-                    newHeader.remove(dataRowCol[0][3])
-                    newHeader.insert(3, dataRowCol[0][3].strip("-"))
-                    dataRowCol.remove(dataRowCol[0])
-                    dataRowCol.insert(0, newHeader)
-                return dataRowCol
-
-            def sheetToListRowCol(sheet1):
-                returnList = []
-                i = 0
-                j = 0
-                numRows = sheet1.col(0).__len__()
-                numCol = sheet1.row(0).__len__()
-                while i < numRows:
-                    tempRow = []
-                    j = 0
-                    while j < numCol:
-                        tempRow.append(sheet1.cell(i, j).value)
-                        j += 1
-                    returnList.append(tempRow)
-                    i += 1
-                returnList = checkForNegativeImZReturnImZ(returnList)
-                return returnList
-
-            def getColDataFromData(dataRowCol, colIndex):
-                i = 1
-                returnCol = []
-                numCol = len(dataRowCol)
-                while i < numCol:
-                    returnCol.append(dataRowCol[i][colIndex])
-                    i += 1
-                return returnCol
-
-            xlsx = xlrd.open_workbook(self.currentDataDir.IE.get() + self.currentFileName.get())
-            sheet1 = xlsx.sheet_by_index(0)
-            data = sheetToListRowCol(sheet1)
-            xlsx.release_resources()
-            del xlsx
-
-            self.activeData.rawFrequency = getColDataFromData(data, 1)
-            self.activeData.rawzPrime = getColDataFromData(data, 2)
-            self.activeData.rawZdoublePrime = getColDataFromData(data, 3)
-            self.activeData.rawzMod = getColDataFromData(data, 4)
-            i = 0
             print('\n\tFrequency,\t\tRe(Z),\t\t\tIm(Z),\t\t\t\t|Z|')
-            for real in self.activeData.rawzPrime:
-                # create things for graphing later
-                self.activeData.rawZExperimentalComplex.append((real + 1j * self.activeData.rawZdoublePrime[i]))
-                self.activeData.rawmodZExperimentalComplex.append(abs(self.activeData.rawZExperimentalComplex[i]))
+            for f, r, i, m in zip(self.activeData.rawFrequency,
+                                  self.activeData.rawzPrime,
+                                  self.activeData.rawZdoublePrime,
+                                  self.activeData.rawzMod):
+                self.activeData.rawZExperimentalComplex.append(r + 1j * i)
+                self.activeData.rawmodZExperimentalComplex.append(abs(r + 1j * i))
+                print(f, r, i, m)
 
-                print(self.activeData.rawFrequency[i], self.activeData.rawzPrime[i], self.activeData.rawZdoublePrime[i],
-                      self.activeData.rawzMod[i])
-                i += 1
-
-            # Change into a numpy.array type so least_squares can use it.
+            # Convert to numpy array for least_squares
             self.activeData.rawFrequency = np.array(self.activeData.rawFrequency)
 
         for i in range(len(self.activeData.rawzPrime)):
